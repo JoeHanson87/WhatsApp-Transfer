@@ -69,6 +69,15 @@ class TransferManager: ObservableObject {
         task.launchPath = "/bin/sh"
         task.arguments = ["-c", "mkdir -p ~/WhatsAppTransfer/android_backup && adb pull /sdcard/Android/media/com.whatsapp ~/WhatsAppTransfer/android_backup/ 2>&1"]
         
+        // Set environment with common PATH locations to ensure ADB is found
+        var environment = ProcessInfo.processInfo.environment
+        if let currentPath = environment["PATH"] {
+            environment["PATH"] = ToolPaths.commonPaths.joined(separator: ":") + ":" + currentPath
+        } else {
+            environment["PATH"] = ToolPaths.commonPaths.joined(separator: ":")
+        }
+        task.environment = environment
+        
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = pipe
