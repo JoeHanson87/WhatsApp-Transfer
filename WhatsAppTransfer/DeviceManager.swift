@@ -8,6 +8,13 @@
 import Foundation
 import Combine
 
+// Helper extension for expanding tilde in paths
+extension String {
+    var expandingTildeInPath: String {
+        return NSString(string: self).expandingTildeInPath
+    }
+}
+
 class DeviceManager: ObservableObject {
     @Published var androidConnected: Bool = false
     @Published var iosConnected: Bool = false
@@ -44,11 +51,31 @@ class DeviceManager: ObservableObject {
         checkiOSDevice()
     }
     
-    private func checkAndroidDevice() {
-        // Check for Android devices using ADB
+    // Helper function to find an executable in multiple paths
+    private func findExecutable(name: String, paths: [String]) -> String? {
+        let fileManager = FileManager.default
+        
+        // Check each provided path
+        for path in paths {
+            if fileManager.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+        
+        // Fallback: try using 'which' with full PATH environment
         let task = Process()
-        task.launchPath = "/usr/bin/which"
-        task.arguments = ["adb"]
+        task.launchPath = "/bin/sh"
+        task.arguments = ["-c", "which \(name)"]
+        
+        // Set environment with common PATH locations
+        var environment = ProcessInfo.processInfo.environment
+        let additionalPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
+        if let currentPath = environment["PATH"] {
+            environment["PATH"] = additionalPaths.joined(separator: ":") + ":" + currentPath
+        } else {
+            environment["PATH"] = additionalPaths.joined(separator: ":")
+        }
+        task.environment = environment
         
         let pipe = Pipe()
         task.standardOutput = pipe
@@ -59,26 +86,44 @@ class DeviceManager: ObservableObject {
             task.waitUntilExit()
             
             if task.terminationStatus == 0 {
-                // ADB is available, check for devices
-                checkADBDevices()
-            } else {
-                DispatchQueue.main.async {
-                    self.androidConnected = false
-                    self.androidDeviceInfo = "ADB not found - Please install Android Platform Tools"
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !output.isEmpty {
+                    return output
                 }
             }
         } catch {
+            // Ignore errors and return nil
+        }
+        
+        return nil
+    }
+    
+    private func checkAndroidDevice() {
+        // Check for Android devices using ADB
+        // Check common installation paths for ADB (Homebrew and system locations)
+        let adbPath = findExecutable(name: "adb", paths: [
+            "/opt/homebrew/bin/adb",      // Homebrew on Apple Silicon
+            "/usr/local/bin/adb",         // Homebrew on Intel
+            "/usr/bin/adb",               // System installation
+            "~/Library/Android/sdk/platform-tools/adb".expandingTildeInPath  // Android SDK
+        ])
+        
+        if let path = adbPath {
+            // ADB is available, check for devices
+            checkADBDevices(adbPath: path)
+        } else {
             DispatchQueue.main.async {
                 self.androidConnected = false
-                self.androidDeviceInfo = "Error checking for ADB"
+                self.androidDeviceInfo = "ADB not found - Please install Android Platform Tools"
             }
         }
     }
     
-    private func checkADBDevices() {
+    private func checkADBDevices(adbPath: String) {
         let task = Process()
         task.launchPath = "/bin/sh"
-        task.arguments = ["-c", "adb devices -l | grep -v 'List of devices' | grep -v '^$' | grep 'device'"]
+        task.arguments = ["-c", "\(adbPath) devices -l | grep -v 'List of devices' | grep -v '^$' | grep 'device'"]
         
         let pipe = Pipe()
         task.standardOutput = pipe
@@ -119,39 +164,28 @@ class DeviceManager: ObservableObject {
     
     private func checkiOSDevice() {
         // Check for iOS devices using ideviceinfo (from libimobiledevice)
-        let task = Process()
-        task.launchPath = "/usr/bin/which"
-        task.arguments = ["ideviceinfo"]
+        // Check common installation paths for ideviceinfo (Homebrew locations)
+        let ideviceinfoPath = findExecutable(name: "ideviceinfo", paths: [
+            "/opt/homebrew/bin/ideviceinfo",  // Homebrew on Apple Silicon
+            "/usr/local/bin/ideviceinfo",     // Homebrew on Intel
+            "/usr/bin/ideviceinfo"            // System installation (rare)
+        ])
         
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = Pipe()
-        
-        do {
-            try task.run()
-            task.waitUntilExit()
-            
-            if task.terminationStatus == 0 {
-                // ideviceinfo is available, check for devices
-                checkiOSDeviceInfo()
-            } else {
-                DispatchQueue.main.async {
-                    self.iosConnected = false
-                    self.iosDeviceInfo = "libimobiledevice not found - Please install via Homebrew"
-                }
-            }
-        } catch {
+        if let path = ideviceinfoPath {
+            // ideviceinfo is available, check for devices
+            checkiOSDeviceInfo(ideviceinfoPath: path)
+        } else {
             DispatchQueue.main.async {
                 self.iosConnected = false
-                self.iosDeviceInfo = "Error checking for libimobiledevice"
+                self.iosDeviceInfo = "libimobiledevice not found - Please install via Homebrew"
             }
         }
     }
     
-    private func checkiOSDeviceInfo() {
+    private func checkiOSDeviceInfo(ideviceinfoPath: String) {
         let task = Process()
         task.launchPath = "/bin/sh"
-        task.arguments = ["-c", "ideviceinfo -k DeviceName"]
+        task.arguments = ["-c", "\(ideviceinfoPath) -k DeviceName"]
         
         let pipe = Pipe()
         task.standardOutput = pipe
