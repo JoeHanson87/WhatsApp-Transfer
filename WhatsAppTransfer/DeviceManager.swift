@@ -56,7 +56,8 @@ class DeviceManager: ObservableObject {
         checkiOSDevice()
     }
     
-    // Helper function to find an executable in multiple paths
+    // Helper function to find an executable by checking multiple full paths
+    // or falling back to using 'which' with extended PATH
     private func findExecutable(name: String, paths: [String]) -> String? {
         let fileManager = FileManager.default
         
@@ -67,7 +68,7 @@ class DeviceManager: ObservableObject {
             return nil
         }
         
-        // Check each provided path
+        // Check each provided full path to executable
         for path in paths {
             if fileManager.isExecutableFile(atPath: path) {
                 return path
@@ -134,9 +135,9 @@ class DeviceManager: ObservableObject {
     
     private func checkADBDevices(adbPath: String) {
         let task = Process()
-        task.launchPath = "/bin/sh"
-        // Use single quotes to safely pass the path, preventing issues with spaces or special chars
-        task.arguments = ["-c", "'\(adbPath)' devices -l | grep -v 'List of devices' | grep -v '^$' | grep 'device'"]
+        // Execute adb directly instead of through shell to avoid injection risks
+        task.launchPath = adbPath
+        task.arguments = ["devices", "-l"]
         
         let pipe = Pipe()
         task.standardOutput = pipe
@@ -150,10 +151,19 @@ class DeviceManager: ObservableObject {
             let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             
             DispatchQueue.main.async {
-                if !output.isEmpty && task.terminationStatus == 0 {
+                // Filter output to find connected devices (grep equivalent)
+                let lines = output.components(separatedBy: "\n")
+                let deviceLines = lines.filter { line in
+                    !line.isEmpty && 
+                    !line.contains("List of devices") && 
+                    line.contains("device") && 
+                    !line.hasSuffix("device") // Exclude lines ending with just "device"
+                }
+                
+                if !deviceLines.isEmpty && task.terminationStatus == 0 {
                     self.androidConnected = true
-                    // Parse device info
-                    if let firstLine = output.components(separatedBy: "\n").first {
+                    // Parse device info from first device
+                    if let firstLine = deviceLines.first {
                         let components = firstLine.components(separatedBy: " ")
                         if let model = components.first(where: { $0.hasPrefix("model:") }) {
                             let modelName = model.replacingOccurrences(of: "model:", with: "")
@@ -197,9 +207,9 @@ class DeviceManager: ObservableObject {
     
     private func checkiOSDeviceInfo(ideviceinfoPath: String) {
         let task = Process()
-        task.launchPath = "/bin/sh"
-        // Use single quotes to safely pass the path, preventing issues with spaces or special chars
-        task.arguments = ["-c", "'\(ideviceinfoPath)' -k DeviceName"]
+        // Execute ideviceinfo directly instead of through shell to avoid injection risks
+        task.launchPath = ideviceinfoPath
+        task.arguments = ["-k", "DeviceName"]
         
         let pipe = Pipe()
         task.standardOutput = pipe

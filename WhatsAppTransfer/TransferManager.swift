@@ -8,11 +8,6 @@
 import Foundation
 import Combine
 
-// Shared constants for common tool paths
-struct ToolPaths {
-    static let commonPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
-}
-
 class TransferManager: ObservableObject {
     @Published var isTransferring: Bool = false
     @Published var progress: Double = 0.0
