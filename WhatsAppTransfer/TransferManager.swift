@@ -8,6 +8,11 @@
 import Foundation
 import Combine
 
+// Shared constants for common tool paths
+struct ToolPaths {
+    static let commonPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
+}
+
 class TransferManager: ObservableObject {
     @Published var isTransferring: Bool = false
     @Published var progress: Double = 0.0
@@ -71,11 +76,10 @@ class TransferManager: ObservableObject {
         
         // Set environment with common PATH locations to ensure ADB is found
         var environment = ProcessInfo.processInfo.environment
-        let additionalPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
         if let currentPath = environment["PATH"] {
-            environment["PATH"] = additionalPaths.joined(separator: ":") + ":" + currentPath
+            environment["PATH"] = ToolPaths.commonPaths.joined(separator: ":") + ":" + currentPath
         } else {
-            environment["PATH"] = additionalPaths.joined(separator: ":")
+            environment["PATH"] = ToolPaths.commonPaths.joined(separator: ":")
         }
         task.environment = environment
         

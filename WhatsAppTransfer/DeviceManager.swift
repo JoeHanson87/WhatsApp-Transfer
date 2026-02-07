@@ -8,6 +8,11 @@
 import Foundation
 import Combine
 
+// Shared constants for common tool paths
+struct ToolPaths {
+    static let commonPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
+}
+
 // Helper extension for expanding tilde in paths
 extension String {
     var expandingTildeInPath: String {
@@ -55,6 +60,13 @@ class DeviceManager: ObservableObject {
     private func findExecutable(name: String, paths: [String]) -> String? {
         let fileManager = FileManager.default
         
+        // Validate executable name to prevent injection
+        let validExecutablePattern = "^[a-zA-Z0-9_-]+$"
+        let predicate = NSPredicate(format: "SELF MATCHES %@", validExecutablePattern)
+        guard predicate.evaluate(with: name) else {
+            return nil
+        }
+        
         // Check each provided path
         for path in paths {
             if fileManager.isExecutableFile(atPath: path) {
@@ -65,15 +77,15 @@ class DeviceManager: ObservableObject {
         // Fallback: try using 'which' with full PATH environment
         let task = Process()
         task.launchPath = "/bin/sh"
-        task.arguments = ["-c", "which \(name)"]
+        // Use quotes around name to handle edge cases, name is validated above
+        task.arguments = ["-c", "which '\(name)'"]
         
         // Set environment with common PATH locations
         var environment = ProcessInfo.processInfo.environment
-        let additionalPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
         if let currentPath = environment["PATH"] {
-            environment["PATH"] = additionalPaths.joined(separator: ":") + ":" + currentPath
+            environment["PATH"] = ToolPaths.commonPaths.joined(separator: ":") + ":" + currentPath
         } else {
-            environment["PATH"] = additionalPaths.joined(separator: ":")
+            environment["PATH"] = ToolPaths.commonPaths.joined(separator: ":")
         }
         task.environment = environment
         
@@ -123,7 +135,8 @@ class DeviceManager: ObservableObject {
     private func checkADBDevices(adbPath: String) {
         let task = Process()
         task.launchPath = "/bin/sh"
-        task.arguments = ["-c", "\(adbPath) devices -l | grep -v 'List of devices' | grep -v '^$' | grep 'device'"]
+        // Use single quotes to safely pass the path, preventing issues with spaces or special chars
+        task.arguments = ["-c", "'\(adbPath)' devices -l | grep -v 'List of devices' | grep -v '^$' | grep 'device'"]
         
         let pipe = Pipe()
         task.standardOutput = pipe
@@ -185,7 +198,8 @@ class DeviceManager: ObservableObject {
     private func checkiOSDeviceInfo(ideviceinfoPath: String) {
         let task = Process()
         task.launchPath = "/bin/sh"
-        task.arguments = ["-c", "\(ideviceinfoPath) -k DeviceName"]
+        // Use single quotes to safely pass the path, preventing issues with spaces or special chars
+        task.arguments = ["-c", "'\(ideviceinfoPath)' -k DeviceName"]
         
         let pipe = Pipe()
         task.standardOutput = pipe
